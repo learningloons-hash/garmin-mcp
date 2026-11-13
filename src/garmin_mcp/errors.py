@@ -66,7 +66,6 @@ def map_library_exception(exc: BaseException) -> GarminMcpError:
         "Garmin upstream error (%s): %s",
         type(exc).__name__,
         redact_secrets(raw),
-        exc_info=exc,
     )
     lowered = raw.lower()
 

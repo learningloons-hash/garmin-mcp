@@ -13,7 +13,12 @@ _SENSITIVE_ENV_NAMES = (
 
 # Bearer tokens, common OAuth-ish keys, and inline JSON token blobs.
 _PATTERNS: list[tuple[Pattern[str], str]] = [
+    (
+        re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+        "[REDACTED]",
+    ),
     (re.compile(r"(?i)(password\s*[=:]\s*)(\S+)"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(email\s*[=:]\s*)(\S+)"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)(\S+)"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(\"refresh_token\"\s*:\s*\")([^\"]+)(\")"), r'\1[REDACTED]\3'),
     (re.compile(r"(?i)(\"access_token\"\s*:\s*\")([^\"]+)(\")"), r'\1[REDACTED]\3'),
