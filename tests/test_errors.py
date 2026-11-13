@@ -42,6 +42,25 @@ def test_map_library_exception_preserves_garmin_mcp_subclasses() -> None:
     assert isinstance(mapped, AuthFailureError)
 
 
+def test_map_library_exception_debug_log_redacts_without_traceback(caplog) -> None:
+    caplog.set_level("DEBUG", logger="garmin_mcp.errors")
+    synthetic_email = "synthetic-leak@example.test"
+    synthetic_password = "synthetic-password-value-xyz"
+    synthetic_bearer = "Bearer synthetic.jwt.token.value"
+    exc = RuntimeError(
+        f"upstream failure email={synthetic_email} password={synthetic_password} "
+        f"Authorization: {synthetic_bearer}"
+    )
+    map_library_exception(exc)
+    full_log = caplog.text
+    for record in caplog.records:
+        if record.exc_text:
+            full_log += record.exc_text
+    for secret in (synthetic_email, synthetic_password, "synthetic.jwt.token"):
+        assert secret not in full_log, f"secret leaked in logs: {secret!r}\n{full_log}"
+    assert "RuntimeError" in caplog.text or "Garmin upstream error" in caplog.text
+
+
 def test_connection_error_hides_upstream_detail() -> None:
     mapped = map_library_exception(
         GarminConnectConnectionError("super-secret-upstream-token-value leaked")

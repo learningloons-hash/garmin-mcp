@@ -120,6 +120,8 @@ All tools return **compact JSON** with explicit **units**. Errors are structured
 { "activity_id": 12345678901 }
 ```
 
+`activity_id` must be a positive integer up to **10^13** (inclusive); larger values are rejected at the MCP layer.
+
 **Output** (subset; full detail trimmed for token size in implementation)
 
 ```json

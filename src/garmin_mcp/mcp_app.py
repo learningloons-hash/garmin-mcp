@@ -6,7 +6,6 @@ from typing import Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -16,6 +15,7 @@ from garmin_mcp.mcp_auth import BearerApiKeyMiddleware
 from garmin_mcp.mcp_errors import raise_tool_error
 from garmin_mcp.mcp_validation import (
     MAX_ACTIVITY_DAYS,
+    MAX_ACTIVITY_ID,
     MAX_ACTIVITY_LIMIT,
     MAX_BODY_COMPOSITION_DAYS,
     clamp_int,
@@ -87,8 +87,7 @@ def create_mcp_server(*, client: GarminClient) -> MCPServer:
         structured_output=True,
     )
     async def get_activity_detail(activity_id: int) -> dict[str, Any]:
-        if activity_id <= 0:
-            raise ToolError("activity_id must be a positive integer.")
+        activity_id = clamp_int("activity_id", activity_id, low=1, high=MAX_ACTIVITY_ID)
         try:
             return await _run_sync(lambda: client.fetch_activity_detail(activity_id))
         except Exception as exc:
@@ -203,7 +202,21 @@ def create_mcp_server(*, client: GarminClient) -> MCPServer:
     return mcp
 
 
-def build_http_app(mcp: MCPServer, api_key: str, *, host: str = "0.0.0.0"):
-    """Starlette ASGI app: ``/health`` public, ``/mcp`` bearer-protected."""
-    base = mcp.streamable_http_app(streamable_http_path="/mcp", host=host)
+def build_http_app(
+    mcp: MCPServer,
+    api_key: str,
+    *,
+    transport_host: str = "0.0.0.0",
+    host: str | None = None,
+):
+    """Starlette ASGI app: ``/health`` public, ``/mcp`` bearer-protected.
+
+    ``transport_host`` is passed to the MCP SDK for DNS-rebinding protection only.
+    Use ``0.0.0.0`` behind Railway (the proxy rewrites ``Host``). Uvicorn bind
+    address is separate (see ``server.main`` / ``HOST`` env). Deprecated alias:
+    ``host=`` sets ``transport_host``.
+    """
+    if host is not None:
+        transport_host = host
+    base = mcp.streamable_http_app(streamable_http_path="/mcp", host=transport_host)
     return BearerApiKeyMiddleware(base, api_key)

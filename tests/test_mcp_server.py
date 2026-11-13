@@ -193,6 +193,12 @@ def test_auth_failure_maps_to_safe_message() -> None:
     assert "leaked" not in msg
 
 
+def test_get_activity_detail_rejects_huge_id(mcp_server) -> None:
+    huge = 10**13 + 1
+    result = asyncio.run(_call_tool(mcp_server, "get_activity_detail", {"activity_id": huge}))
+    assert "activity_id" in _tool_error_text(result).lower()
+
+
 def test_get_activity_detail_positive_id(mcp_server, fake_client: FakeMcpGarminClient) -> None:
     result = asyncio.run(_call_tool(mcp_server, "get_activity_detail", {"activity_id": 42}))
     assert result.is_error is False

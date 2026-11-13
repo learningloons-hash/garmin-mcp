@@ -19,8 +19,10 @@ def build_app():
     api_key = require_mcp_api_key_or_exit()
     client = get_garmin_client()
     mcp = create_mcp_server(client=client)
-    host = os.environ.get("HOST", "0.0.0.0")
-    return build_http_app(mcp, api_key, host=host)
+    # HOST: uvicorn bind address. MCP_TRANSPORT_HOST: SDK streamable-http host knob
+    # (0.0.0.0 disables DNS-rebinding Host checks so Railway's rewritten Host works).
+    transport_host = os.environ.get("MCP_TRANSPORT_HOST", "0.0.0.0")
+    return build_http_app(mcp, api_key, transport_host=transport_host)
 
 
 def main() -> None:

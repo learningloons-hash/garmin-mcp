@@ -24,6 +24,11 @@ def test_redact_email_from_env(monkeypatch) -> None:
     assert "[REDACTED]" in redact_secrets("logged in as mark@example.com")
 
 
+def test_redact_generic_email_without_env() -> None:
+    assert "[REDACTED]" in redact_secrets("login failed for user@example.org")
+    assert "user@example.org" not in redact_secrets("login failed for user@example.org")
+
+
 def test_redact_bearer_blob() -> None:
     token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.sig"
     out = redact_secrets(f"Authorization: Bearer {token}")

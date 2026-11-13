@@ -39,6 +39,8 @@ See [`.env.example`](.env.example).
 | `GARMINTOKENS` | Directory for OAuth token files (default `/data/garth`) |
 | `MCP_API_KEY` | Bearer token for MCP clients (M3+) |
 | `PORT` | HTTP port (M3+/Railway) |
+| `HOST` | Uvicorn bind address (default `0.0.0.0`) |
+| `MCP_TRANSPORT_HOST` | MCP SDK streamable-http host knob (default `0.0.0.0`; keep `0.0.0.0` on Railway so rewritten `Host` headers are not rejected) |
 
 ## Garmin session and MFA bootstrap
 
