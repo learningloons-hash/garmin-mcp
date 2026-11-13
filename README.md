@@ -1,8 +1,8 @@
 # garmin-mcp
 
-Personal, **read-only** [MCP](https://modelcontextprotocol.io/) server (Python, Streamable HTTP) that exposes your own Garmin Connect data to an AI assistant. Hosted on Railway as a single always-on service.
+Personal, **read-only** [MCP](https://modelcontextprotocol.io/) server (Python, Streamable HTTP) that exposes your own Garmin Connect data to an AI assistant. Planned hosting: Railway as a single always-on service.
 
-**Status:** Milestone 1 — specification, agent rules, and project skeleton only. No Garmin login, data fetching, or MCP server yet.
+**Status:** Milestone 2 — Garmin client module (login, token persistence, normalized fetch helpers, MFA bootstrap CLI). MCP HTTP layer comes in M3.
 
 ## Documentation
 
@@ -30,7 +30,41 @@ pytest
 
 ## Environment variables
 
-See [`.env.example`](.env.example). Names only in repo; set real values in Railway or a local `.env` (gitignored).
+See [`.env.example`](.env.example).
+
+| Variable | Purpose |
+|----------|---------|
+| `GARMIN_EMAIL` | Garmin Connect email (secret) |
+| `GARMIN_PASSWORD` | Garmin Connect password (secret; used when tokens fail) |
+| `GARMINTOKENS` | Directory for OAuth token files (default `/data/garth`) |
+| `MCP_API_KEY` | Bearer token for MCP clients (M3+) |
+| `PORT` | HTTP port (M3+/Railway) |
+
+## Garmin session and MFA bootstrap
+
+The client loads tokens from `GARMINTOKENS` on first use. If tokens are missing or invalid, it logs in with `GARMIN_EMAIL` / `GARMIN_PASSWORD` and saves new tokens. With a persistent volume, you usually only need MFA once.
+
+When Garmin requires 2FA during **non-interactive** server login, login fails with an error pointing at this command:
+
+```bash
+export GARMIN_EMAIL=you@example.com
+export GARMIN_PASSWORD=...
+export GARMINTOKENS=/data/garth   # or a local path
+python -m garmin_mcp.bootstrap
+```
+
+The bootstrap CLI prompts for the MFA code interactively and writes tokens to `GARMINTOKENS`. After that, the running service should start without MFA until tokens expire.
+
+## Client API (library)
+
+```python
+from garmin_mcp.garmin_client import get_garmin_client
+
+client = get_garmin_client()
+client.fetch_daily_summary("2026-11-12")
+```
+
+Available fetch methods: `fetch_recent_activities`, `fetch_activity_detail`, `fetch_daily_summary`, `fetch_sleep`, `fetch_hrv`, `fetch_body_battery_and_stress`, `fetch_training_readiness_and_status`, `fetch_body_composition`.
 
 ## License
 

@@ -45,8 +45,8 @@ Layers (by milestone):
 | Name | Purpose |
 |------|---------|
 | `GARMIN_EMAIL` | Garmin Connect account email (M2 login). |
-| `GARMIN_PASSWORD` | Garmin Connect password (M2 login; prefer token-only runtime after MFA bootstrap). |
-| `GARMINTOKENS` | Filesystem path for persisted **garth** OAuth token store (e.g. Railway volume mount). |
+| `GARMIN_PASSWORD` | Garmin Connect password (Railway secret; used when tokens are missing or invalid). |
+| `GARMINTOKENS` | Filesystem path for persisted OAuth token store (default `/data/garth`; Railway volume). |
 | `MCP_API_KEY` | Shared secret; clients must send `Authorization: Bearer <MCP_API_KEY>`. |
 | `PORT` | HTTP listen port (Railway sets this). |
 
@@ -65,7 +65,18 @@ Optional future vars (not required until implemented): log level, request timeou
 - Endpoints and response shapes can **change without notice**; the server may break until `garminconnect` or this repo is updated.
 - Use may **conflict with Garmin’s Terms of Service**; this is a personal, single-user integration with no Garmin partnership.
 - **Rate limiting** or account lockouts are possible if traffic is abusive; keep request volume modest.
-- **MFA/2FA**: Initial login may require a one-time human bootstrap (documented CLI in M2); runtime should reuse stored tokens.
+- **MFA/2FA**: Non-interactive server login fails with a clear error if MFA is required; Mark runs `python -m garmin_mcp.bootstrap` once. With tokens on a volume, MFA is not needed again until tokens expire.
+
+## Garmin client auth (M2+)
+
+On startup or first API use:
+
+1. Load tokens from `GARMINTOKENS` (default `/data/garth`).
+2. If missing, invalid, or rejected by Garmin, log in with `GARMIN_EMAIL` / `GARMIN_PASSWORD` and save tokens back to `GARMINTOKENS`.
+3. Token refresh is handled by `garminconnect` / garth transparently; on auth failure the client may re-login with exponential backoff (no retry storms when credentials are definitively wrong).
+4. If Garmin presents MFA during non-interactive login, return `mfa_required` and instruct Mark to run `python -m garmin_mcp.bootstrap`.
+
+`GARMIN_EMAIL` and `GARMIN_PASSWORD` remain Railway secrets for the lifetime of the service (Mark’s decision).
 
 ## MCP tools (read-only, proposed)
 
@@ -280,11 +291,11 @@ Errors returned to the MCP client should be **clear and actionable** (no stack t
 - `SPEC.md`, `AGENTS.md`, `pyproject.toml`, package layout, trivial tests, CI (ruff + pytest).
 - **Acceptance**: `ruff check` and `pytest` pass; no Garmin network calls; no secrets in tree.
 
-### M2 — Garmin client module
+### M2 — Garmin client module (in review — PR #1)
 
-- Env-based login; garth token dir at `GARMINTOKENS`; refresh; documented one-time MFA CLI bootstrap.
-- Typed fetch functions backing each planned tool; unit tests with mocks/recordings (no real credentials).
-- **Acceptance**: tests pass offline; README section for bootstrap; no MCP server yet.
+- Env-based login with retained `GARMIN_EMAIL` / `GARMIN_PASSWORD`; token dir `GARMINTOKENS` (default `/data/garth`); re-login on failure; MFA bootstrap CLI.
+- Typed fetch functions backing each planned tool; unit tests with mocks (no real credentials).
+- **Acceptance**: `ruff` + `pytest` pass offline; README bootstrap section; no MCP server yet.
 
 ### M3 — MCP server layer
 
@@ -304,9 +315,6 @@ Errors returned to the MCP client should be **clear and actionable** (no stack t
 
 ## Open decisions (for Mark)
 
-Recorded here as the spec evolves:
-
 - Exact **MCP SDK** pin and streamable HTTP mount path (finalize in M3 against SDK docs).
-- Whether runtime login uses **password only at bootstrap** vs. retained env password (prefer bootstrap-only).
-- **Volume path** default on Railway for `GARMINTOKENS`.
 - How aggressively to **trim** activity detail payloads for LLM context limits.
+- **Resolved:** retain `GARMIN_PASSWORD` on Railway; default `GARMINTOKENS=/data/garth`.
