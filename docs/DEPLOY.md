@@ -18,7 +18,9 @@ Mark deploys this repo personally. Agents do **not** merge or click deploy for y
 
 ## Step 1 — Create the Railway project
 
-1. In Railway: **New Project** → **Deploy from GitHub repo** → `learningloons-hash/garmin-mcp` (branch **`main`** after Mark merges M4).
+Create a **new, dedicated** Railway project named **`garmin-mcp`** (do not reuse an existing project or service from another app).
+
+1. In Railway: **New Project** → name it **`garmin-mcp`** → **Deploy from GitHub repo** → `learningloons-hash/garmin-mcp` (branch **`main`** after Mark merges M4).
 2. Railway detects **`railway.json`** + **`Dockerfile`** and builds the container.
 
 ## Step 2 — Add a volume for Garmin tokens
@@ -29,7 +31,7 @@ Garmin OAuth tokens must survive redeploys.
 2. Mount path: **`/data`**
 3. Leave **`GARMINTOKENS=/data/garth`** (default in Docker image and `DEFAULT_TOKEN_DIR` in code). The app creates `garth` with mode `0700` on first use.
 
-On **first boot** with an empty volume, the server logs in with `GARMIN_EMAIL` / `GARMIN_PASSWORD` and writes tokens to the volume. Later boots load tokens and usually avoid password login until tokens expire.
+**Garmin login is lazy:** the process starts without calling Garmin. With a new volume, **`/data/garth` stays empty** until the **first MCP tool call** that needs Garmin data (for example `get_daily_summary` in the smoke test). That call triggers login/token save using `GARMIN_EMAIL` / `GARMIN_PASSWORD`. **`GET /health` succeeds on boot** regardless—no Garmin network I/O. After tokens exist on the volume, later tool calls load them and usually avoid password login until tokens expire.
 
 ## Step 3 — Set service variables
 
@@ -70,6 +72,13 @@ Expected: `{"status":"ok"}`
 
 ## Step 6 — Smoke test (authenticated MCP)
 
+**Prerequisites:** a local clone of this repo and the package installed (includes `mcp`, `httpx2`, etc.):
+
+```bash
+cd garmin-mcp
+pip install -e .
+```
+
 From a machine with network access (use the same `MCP_API_KEY` as Railway):
 
 ```bash
@@ -77,6 +86,8 @@ export MCP_URL="https://YOUR_DOMAIN.up.railway.app"
 export MCP_API_KEY="your-long-secret-key"
 python scripts/smoke_test.py
 ```
+
+The tool call to `get_daily_summary` is typically the **first** Garmin login on a fresh deploy; allow time for that one-time auth.
 
 Expected stdout shape (no secrets):
 
