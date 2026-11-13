@@ -58,6 +58,9 @@ def map_library_exception(exc: BaseException) -> GarminMcpError:
         GarminConnectTooManyRequestsError,
     )
 
+    if isinstance(exc, GarminMcpError):
+        return exc
+
     raw = str(exc)
     logger.debug(
         "Garmin upstream error (%s): %s",

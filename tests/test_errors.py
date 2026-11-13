@@ -35,6 +35,13 @@ def test_map_auth_failure() -> None:
     assert isinstance(mapped, AuthFailureError)
 
 
+def test_map_library_exception_preserves_garmin_mcp_subclasses() -> None:
+    original = AuthFailureError("typed failure", cause=ValueError("inner"))
+    mapped = map_library_exception(original)
+    assert mapped is original
+    assert isinstance(mapped, AuthFailureError)
+
+
 def test_connection_error_hides_upstream_detail() -> None:
     mapped = map_library_exception(
         GarminConnectConnectionError("super-secret-upstream-token-value leaked")

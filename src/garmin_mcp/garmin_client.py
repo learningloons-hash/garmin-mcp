@@ -274,10 +274,24 @@ def _is_permanent_auth_failure(exc: AuthFailureError) -> bool:
     parts = [str(exc)]
     if exc.cause:
         parts.append(str(exc.cause))
+        inner = exc.cause
+        while inner.__cause__ is not None:
+            inner = inner.__cause__
+            parts.append(str(inner))
     text = " ".join(parts).lower()
     permanent_markers = (
         "incorrect email or password",
         "username and password are required",
         "credentials previously rejected",
+        "account locked",
     )
-    return any(marker in text for marker in permanent_markers)
+    if any(marker in text for marker in permanent_markers):
+        return True
+    # garminconnect 0.3.20 raises this shape for wrong-password 401s from SSO.
+    if isinstance(exc.cause, GarminConnectAuthenticationError):
+        cause_lower = str(exc.cause).lower()
+        if "authentication failed (401 unauthorized)" in cause_lower and (
+            "incorrect email or password" in cause_lower or "account locked" in cause_lower
+        ):
+            return True
+    return False

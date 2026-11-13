@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from garminconnect import (
+    Garmin,
     GarminConnectAuthenticationError,
     GarminConnectTooManyRequestsError,
 )
@@ -101,19 +102,102 @@ def test_login_persists_tokens(client: GarminClient, token_dir: Path) -> None:
     client._api.client.dump.assert_called_with(str(token_dir))
 
 
-def test_mfa_raises_bootstrap_hint(client: GarminClient) -> None:
-    fake = FakeGarmin(client._settings.email, client._settings.password)
-    fake.mfa_on_login = True
-    client._api_factory = lambda _e, _p: fake
-    with pytest.raises(MfaRequiredError) as err:
-        client._perform_login()
+REAL_BAD_CREDENTIALS_MESSAGE = (
+    "Authentication failed (401 Unauthorized). "
+    "Possible causes:\n"
+    "  • Incorrect email or password\n"
+    "  • Account locked — check https://sso.garmin.com\n"
+    "  • Garmin SSO service is temporarily unavailable\n"
+    "Original error: 401 Client Error: Unauthorized for url: https://example.invalid"
+)
+
+
+def _real_client(token_dir: Path) -> GarminClient:
+    settings = GarminSettings(
+        email="user@example.com",
+        password="not-a-real-password",
+        token_dir=token_dir,
+    )
+    return GarminClient(settings)
+
+
+def test_mfa_raises_bootstrap_hint_via_library_exception(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production sets return_on_mfa=False; garminconnect raises on MFA."""
+    client = _real_client(token_dir)
+
+    def fake_login(self, email, password, prompt_mfa=None, return_on_mfa=False):
+        assert return_on_mfa is False
+        assert prompt_mfa is None
+        raise GarminConnectAuthenticationError(
+            "MFA Required but no prompt_mfa mechanism supplied"
+        )
+
+    monkeypatch.setattr("garmin_mcp.garmin_client.time.sleep", lambda _s: None)
+    with patch("garminconnect.client.sso.LoginMixin.login", fake_login):
+        with pytest.raises(MfaRequiredError) as err:
+            client.ensure_session()
     assert "bootstrap" in str(err.value).lower()
+    assert "garmin_mcp.bootstrap" in str(err.value)
 
 
-def test_bad_credentials_no_retry_storm(client: GarminClient) -> None:
-    client._bad_credentials = True
-    with pytest.raises(AuthFailureError):
-        client.ensure_session()
+def test_bad_credentials_detected_stops_retry_storm(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _real_client(token_dir)
+    call_count = {"n": 0}
+
+    def fake_login(self, email, password, prompt_mfa=None, return_on_mfa=False):
+        call_count["n"] += 1
+        raise GarminConnectAuthenticationError(REAL_BAD_CREDENTIALS_MESSAGE)
+
+    monkeypatch.setattr("garmin_mcp.garmin_client.time.sleep", lambda _s: None)
+    with patch("garminconnect.client.sso.LoginMixin.login", fake_login):
+        with pytest.raises(AuthFailureError):
+            client.ensure_session()
+    assert call_count["n"] == 1
+    assert client._bad_credentials is True
+
+    with patch("garminconnect.client.sso.LoginMixin.login", fake_login):
+        with pytest.raises(AuthFailureError):
+            client.ensure_session()
+    assert call_count["n"] == 1
+
+
+def test_ambiguous_auth_failure_preserves_type_after_retries(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _real_client(token_dir)
+
+    def fake_login(self, email, password, prompt_mfa=None, return_on_mfa=False):
+        raise GarminConnectAuthenticationError(
+            "401 Unauthorized: session token rejected by API tier"
+        )
+
+    monkeypatch.setattr("garmin_mcp.garmin_client.time.sleep", lambda _s: None)
+    with patch("garminconnect.client.sso.LoginMixin.login", fake_login):
+        with pytest.raises(AuthFailureError):
+            client.ensure_session()
+
+
+def test_default_api_factory_builds_library_garmin_without_network(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _real_client(token_dir)
+
+    def fake_login(self, email, password, prompt_mfa=None, return_on_mfa=False):
+        assert return_on_mfa is False
+        return None, None
+
+    def fake_load_profile(self) -> None:
+        self.display_name = email if (email := self.username) else "user"
+
+    monkeypatch.setattr(Garmin, "_load_profile_and_settings", fake_load_profile)
+    with patch("garminconnect.client.sso.LoginMixin.login", fake_login):
+        api = client.ensure_session()
+    assert api.username == client._settings.email
+    assert client._api is api
 
 
 def test_fetch_recent_activities(client: GarminClient) -> None:
