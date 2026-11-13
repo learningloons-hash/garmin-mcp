@@ -1,4 +1,5 @@
 from garmin_mcp.normalize import (
+    _timestamp_to_iso,
     normalize_activity_detail,
     normalize_body_battery_stress,
     normalize_body_composition,
@@ -7,6 +8,12 @@ from garmin_mcp.normalize import (
     normalize_recent_activity,
     normalize_sleep,
     normalize_training,
+)
+from tests.fixtures.realistic_garmin import (
+    REAL_DAILY_TRAINING_STATUS_LIST,
+    REAL_SLEEP_MIDNIGHT_STRING_START,
+    REAL_TRAINING_READINESS_LIST,
+    REAL_TRAINING_STATUS_AGGREGATED,
 )
 from tests.fixtures.synthetic_garmin import (
     SYNTH_ACTIVITY,
@@ -47,6 +54,13 @@ def test_normalize_sleep() -> None:
     assert out["duration_asleep_sec"] == 25200
 
 
+def test_normalize_sleep_uses_ms_not_calendar_midnight_start() -> None:
+    out = normalize_sleep("2026-11-13", REAL_SLEEP_MIDNIGHT_STRING_START)
+    assert out["sleep_start_local"] != "2026-11-13T00:00:00"
+    assert out["sleep_start_local"] == _timestamp_to_iso(1762991580000)
+    assert out["sleep_end_local"] == _timestamp_to_iso(1763018760000)
+
+
 def test_normalize_hrv() -> None:
     out = normalize_hrv("2026-01-10", SYNTH_HRV)
     assert out["overnight_hrv_ms"] == 48.5
@@ -81,6 +95,31 @@ def test_normalize_training() -> None:
     )
     assert out["training_readiness_score"] == 72
     assert out["vo2_max"] == 49.0
+
+
+def test_normalize_training_realistic_nested_and_list_shapes() -> None:
+    out = normalize_training(
+        "2026-11-13",
+        REAL_TRAINING_READINESS_LIST,
+        REAL_DAILY_TRAINING_STATUS_LIST,
+        REAL_TRAINING_STATUS_AGGREGATED,
+    )
+    assert out["training_readiness_score"] == 68
+    assert out["training_status"] == "PRODUCTIVE_3"
+    assert out["vo2_max"] == 48.0
+    assert out["acute_load"] == 412
+    assert out["chronic_load"] == 520
+
+
+def test_normalize_training_aggregated_load_fallback() -> None:
+    out = normalize_training(
+        "2026-11-13",
+        REAL_TRAINING_READINESS_LIST[1],
+        {},
+        REAL_TRAINING_STATUS_AGGREGATED,
+    )
+    assert out["acute_load"] == 715
+    assert out["chronic_load"] == 701
 
 
 def test_normalize_body_composition_grams() -> None:
