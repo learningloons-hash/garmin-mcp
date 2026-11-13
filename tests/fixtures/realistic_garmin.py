@@ -1,5 +1,25 @@
 """Realistic Garmin API payload shapes (synthetic values, not user data)."""
 
+# get_activity() detail shape (metrics under summaryDTO, type under activityTypeDTO).
+REAL_ACTIVITY_DETAIL_DTO = {
+    "activityId": 25063564656,
+    "activityName": "Example City Running",
+    "activityTypeDTO": {
+        "typeId": 1,
+        "typeKey": "running",
+        "parentTypeId": 17,
+    },
+    "summaryDTO": {
+        "startTimeLocal": "2026-11-13T16:54:26",
+        "duration": 6594.0,
+        "distance": 15020.0,
+        "averageHR": 132,
+        "maxHR": 158,
+        "calories": 1025,
+        "elevationGain": 42.0,
+    },
+}
+
 # Date-only local start placeholder; GMT ms holds the instant.
 REAL_SLEEP_DATE_ONLY_START = {
     "dailySleepDTO": {

@@ -46,18 +46,29 @@ def main() -> int:
         default=date.today().isoformat(),
         help="Calendar date YYYY-MM-DD (default: today)",
     )
+    parser.add_argument(
+        "--activity-id",
+        type=int,
+        default=None,
+        help="If set, include get_activity() shape for this activity id",
+    )
     args = parser.parse_args()
     cdate = args.date
 
     api = _login()
-    sections = [
+    sections: list[dict[str, Any]] = [
         _safe_shape("get_hrv_data", lambda: api.get_hrv_data(cdate)),
         _safe_shape("get_training_readiness", lambda: api.get_training_readiness(cdate)),
         _safe_shape("get_training_status", lambda: api.get_training_status(cdate)),
         _safe_shape("get_max_metrics", lambda: api.get_max_metrics(cdate)),
         _safe_shape("get_sleep_data", lambda: api.get_sleep_data(cdate)),
     ]
+    if args.activity_id is not None:
+        aid = str(args.activity_id)
+        sections.append(_safe_shape("get_activity", lambda: api.get_activity(aid)))
     out: dict[str, Any] = {"date": cdate}
+    if args.activity_id is not None:
+        out["activity_id"] = args.activity_id
     for part in sections:
         out.update(part)
 

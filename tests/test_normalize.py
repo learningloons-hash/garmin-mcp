@@ -12,6 +12,7 @@ from garmin_mcp.normalize import (
     normalize_training,
 )
 from tests.fixtures.realistic_garmin import (
+    REAL_ACTIVITY_DETAIL_DTO,
     REAL_DAILY_TRAINING_STATUS_LIST,
     REAL_HRV_NIGHT,
     REAL_MAX_METRICS_LIST,
@@ -44,6 +45,21 @@ def test_normalize_activity_detail_includes_pace() -> None:
     out = normalize_activity_detail(SYNTH_ACTIVITY)
     assert out["avg_pace_sec_per_km"] == 360
     assert out["elevation_gain_m"] == 25.0
+
+
+def test_normalize_activity_detail_summary_dto_shape() -> None:
+    out = normalize_activity_detail(REAL_ACTIVITY_DETAIL_DTO)
+    assert out["activity_id"] == 25063564656
+    assert out["name"] == "Example City Running"
+    assert out["type"] == "running"
+    assert out["start_time_local"] == "2026-11-13T16:54:26"
+    assert out["duration_sec"] == 6594.0
+    assert out["distance_m"] == 15020.0
+    assert out["avg_hr_bpm"] == 132
+    assert out["calories_kcal"] == 1025
+    assert out["max_hr_bpm"] == 158
+    assert out["elevation_gain_m"] == 42.0
+    assert out["avg_pace_sec_per_km"] == int(round(6594.0 / 15.02))
 
 
 def test_normalize_daily_summary() -> None:
