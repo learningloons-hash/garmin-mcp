@@ -2,11 +2,12 @@
 
 Personal, **read-only** [MCP](https://modelcontextprotocol.io/) server (Python, Streamable HTTP) that exposes your own Garmin Connect data to an AI assistant. Planned hosting: Railway as a single always-on service.
 
-**Status:** Milestone 3 — MCP HTTP server (Streamable HTTP on `/mcp`, eight read-only tools, bearer auth). M2 Garmin client is merged; Railway deploy is M4.
+**Status:** Milestone 4 — Railway deploy packaging (`Dockerfile`, `railway.json`, `docs/DEPLOY.md`, smoke script). MCP server (M3) and Garmin client (M2) are on `main`.
 
 ## Documentation
 
 - [`SPEC.md`](SPEC.md) — architecture, tools, risks, milestones
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — Railway runbook (Mark)
 - [`AGENTS.md`](AGENTS.md) — rules for coding agents on this repo
 
 ## Requirements
