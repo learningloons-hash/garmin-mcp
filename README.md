@@ -2,7 +2,7 @@
 
 Personal, **read-only** [MCP](https://modelcontextprotocol.io/) server (Python, Streamable HTTP) that exposes your own Garmin Connect data to an AI assistant. Planned hosting: Railway as a single always-on service.
 
-**Status:** Milestone 2 — Garmin client module (login, token persistence, normalized fetch helpers, MFA bootstrap CLI). MCP HTTP layer comes in M3.
+**Status:** Milestone 3 — MCP HTTP server (Streamable HTTP on `/mcp`, eight read-only tools, bearer auth). M2 Garmin client is merged; Railway deploy is M4.
 
 ## Documentation
 
@@ -54,6 +54,20 @@ python -m garmin_mcp.bootstrap
 ```
 
 The bootstrap CLI prompts for the MFA code interactively and writes tokens to `GARMINTOKENS`. After that, the running service should start without MFA until tokens expire.
+
+## Run the MCP server (M3)
+
+```bash
+export MCP_API_KEY='...'   # at least 32 characters
+export GARMIN_EMAIL=...
+export GARMIN_PASSWORD=...
+export GARMINTOKENS=./data/garth
+export PORT=8000
+python -m garmin_mcp.server
+```
+
+- Streamable HTTP MCP endpoint: `POST /mcp` (requires `Authorization: Bearer $MCP_API_KEY`)
+- Liveness: `GET /health` → `{"status":"ok"}` (no auth, no Garmin I/O)
 
 ## Client API (library)
 
