@@ -299,17 +299,17 @@ Errors returned to the MCP client should be **clear and actionable** (no stack t
 - Typed fetch functions backing each planned tool; unit tests with mocks (no real credentials).
 - **Acceptance**: `ruff` + `pytest` pass offline; README bootstrap section; no MCP server yet.
 
-### M3 — MCP server layer (in review)
+### M3 — MCP server layer (merged)
 
 - `MCPServer` (mcp 2.x SDK) + Streamable HTTP on `/mcp`; uvicorn on `0.0.0.0:$PORT`.
 - Eight read-only tools wrapping M2 `fetch_*` helpers; bearer `MCP_API_KEY` on `/mcp`; unauthenticated `/health`.
 - **Acceptance**: `ruff` + `pytest` pass offline with mocked Garmin client; no write tools; no live Garmin in CI.
 
-### M4 — Railway deploy
+### M4 — Railway deploy (in review)
 
-- Dockerfile or Nixpacks; `PORT`; `RUNBOOK.md` for Mark (service, secrets, volume, MFA).
-- Acceptance smoke test: `/health` + one authenticated tool call.
-- **Acceptance**: Mark can deploy without agent merging to `main`.
+- `Dockerfile` (Python 3.12.8), `railway.json` healthcheck `/health`, volume at `/data` for `GARMINTOKENS=/data/garth`.
+- `docs/DEPLOY.md` runbook; `scripts/smoke_test.py` for Mark (`MCP_URL` + `MCP_API_KEY`).
+- **Acceptance**: Mark can deploy from `main` without agent merging; CI green; no agent deploy or secrets in git.
 
 ### M5 — Hook-up
 

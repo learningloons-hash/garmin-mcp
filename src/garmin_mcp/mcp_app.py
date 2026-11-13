@@ -10,6 +10,7 @@ from mcp_types import ToolAnnotations
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from garmin_mcp.deploy_config import EXPECTED_MCP_TOOL_NAMES
 from garmin_mcp.garmin_client import GarminClient
 from garmin_mcp.mcp_auth import BearerApiKeyMiddleware
 from garmin_mcp.mcp_errors import raise_tool_error
@@ -26,18 +27,7 @@ from garmin_mcp.mcp_validation import (
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
-_READ_TOOL_NAMES = frozenset(
-    {
-        "get_recent_activities",
-        "get_activity_detail",
-        "get_daily_summary",
-        "get_sleep",
-        "get_hrv",
-        "get_body_battery_and_stress",
-        "get_training_readiness_and_status",
-        "get_body_composition",
-    }
-)
+_READ_TOOL_NAMES = EXPECTED_MCP_TOOL_NAMES
 
 
 async def _run_sync(fn: Any) -> Any:
