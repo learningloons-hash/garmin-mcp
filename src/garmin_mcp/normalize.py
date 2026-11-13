@@ -17,12 +17,40 @@ def _nested(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 
 def _activity_type(raw: dict[str, Any]) -> str | None:
-    at = raw.get("activityType")
-    if isinstance(at, dict):
-        return at.get("typeKey") or at.get("typeId")
-    if isinstance(at, str):
-        return at
+    for key in ("activityTypeDTO", "activityType", "eventTypeDTO"):
+        at = raw.get(key)
+        if isinstance(at, dict):
+            type_key = at.get("typeKey")
+            if type_key is not None:
+                return str(type_key)
+            type_id = at.get("typeId")
+            if type_id is not None:
+                return str(type_id)
+        if isinstance(at, str):
+            return at
     return None
+
+
+def _activity_metrics_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """Metrics from get_activity summaryDTO with list-endpoint top-level fallbacks."""
+    row: dict[str, Any] = {}
+    summary = raw.get("summaryDTO")
+    if isinstance(summary, dict):
+        row.update(summary)
+    for key in (
+        "startTimeLocal",
+        "duration",
+        "distance",
+        "averageHR",
+        "avgHR",
+        "maxHR",
+        "maxHeartRate",
+        "elevationGain",
+        "calories",
+    ):
+        if row.get(key) is None and raw.get(key) is not None:
+            row[key] = raw.get(key)
+    return row
 
 
 def _pace_sec_per_km(duration_sec: float | None, distance_m: float | None) -> int | None:
@@ -198,27 +226,30 @@ def _acute_chronic_load(
 
 def normalize_recent_activity(raw: dict[str, Any]) -> dict[str, Any]:
     activity_id = raw.get("activityId") or raw.get("activityUUID")
-    distance = raw.get("distance")
+    metrics = _activity_metrics_row(raw)
+    distance = metrics.get("distance")
+    duration = metrics.get("duration")
     return {
         "activity_id": activity_id,
         "name": raw.get("activityName"),
         "type": _activity_type(raw),
-        "start_time_local": raw.get("startTimeLocal"),
-        "duration_sec": raw.get("duration"),
+        "start_time_local": metrics.get("startTimeLocal"),
+        "duration_sec": duration,
         "distance_m": float(distance) if distance is not None else None,
-        "avg_hr_bpm": raw.get("averageHR") or raw.get("avgHR"),
-        "calories_kcal": raw.get("calories"),
+        "avg_hr_bpm": metrics.get("averageHR") or metrics.get("avgHR"),
+        "calories_kcal": metrics.get("calories"),
     }
 
 
 def normalize_activity_detail(raw: dict[str, Any]) -> dict[str, Any]:
     base = normalize_recent_activity(raw)
-    distance = raw.get("distance")
-    duration = raw.get("duration")
+    metrics = _activity_metrics_row(raw)
+    distance = metrics.get("distance")
+    duration = metrics.get("duration")
     base.update(
         {
-            "elevation_gain_m": raw.get("elevationGain"),
-            "max_hr_bpm": raw.get("maxHR") or raw.get("maxHeartRate"),
+            "elevation_gain_m": metrics.get("elevationGain"),
+            "max_hr_bpm": metrics.get("maxHR") or metrics.get("maxHeartRate"),
             "avg_pace_sec_per_km": _pace_sec_per_km(
                 float(duration) if duration is not None else None,
                 float(distance) if distance is not None else None,
