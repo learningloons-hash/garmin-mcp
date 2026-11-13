@@ -20,7 +20,7 @@ garmin-mcp = "garmin_mcp.server:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.4.2",
+    "pytest==9.0.3",
     "ruff==0.17.5",
 ]
 
