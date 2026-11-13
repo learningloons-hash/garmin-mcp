@@ -1,18 +1,35 @@
 """Realistic Garmin API payload shapes (synthetic values, not user data)."""
 
-# Garmin sometimes sends a calendar-date midnight string for local start while the
-# GMT field holds the real instant (ms epoch).
-REAL_SLEEP_MIDNIGHT_STRING_START = {
+# Date-only local start placeholder; GMT ms holds the instant.
+REAL_SLEEP_DATE_ONLY_START = {
     "dailySleepDTO": {
         "calendarDate": "2026-11-13",
         "sleepTimeSeconds": 28380,
-        "sleepStartTimestampLocal": "2026-11-13T00:00:00",
+        "sleepStartTimestampLocal": "2026-11-13",
         "sleepStartTimestampGMT": 1762991580000,
         "sleepEndTimestampLocal": 1763018760000,
-        "sleepEndTimestampGMT": 1763018760000,
         "sleepScores": {"overall": {"value": 78}},
     }
 }
+
+REAL_HRV_NIGHT = {
+    "hrvSummary": {
+        "calendarDate": "2026-11-13",
+        "lastNightAvg": 51.2,
+        "weeklyAvg": 49.0,
+        "status": "balanced",
+        "feedbackPhrase": "HRV_NORMAL",
+    },
+    "hrvReadings": [{"hrvValue": 42, "readingTimeGMT": 1762993200000}],
+}
+
+REAL_MAX_METRICS_LIST = [
+    {
+        "userId": 10001,
+        "generic": {"vo2MaxValue": 47.0, "vo2MaxPreciseValue": 46.7},
+        "cycling": None,
+    }
+]
 
 REAL_TRAINING_READINESS_LIST = [
     {

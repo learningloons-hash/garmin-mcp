@@ -69,14 +69,17 @@ class FakeGarmin:
     def get_stress_data(self, cdate: str) -> dict[str, Any]:
         return SYNTH_STRESS
 
-    def get_morning_training_readiness(self, cdate: str) -> dict[str, Any] | None:
-        return SYNTH_READINESS
+    def get_training_readiness(self, cdate: str) -> list[dict[str, Any]]:
+        return [SYNTH_READINESS]
 
     def get_daily_training_status(self, cdate: str) -> dict[str, Any]:
         return SYNTH_DAILY_STATUS
 
     def get_training_status(self, cdate: str) -> dict[str, Any]:
         return SYNTH_TRAINING_STATUS
+
+    def get_max_metrics(self, cdate: str) -> list[dict[str, Any]]:
+        return []
 
     def get_weigh_ins(self, start: str, end: str) -> dict[str, Any]:
         return SYNTH_WEIGHT
@@ -205,6 +208,17 @@ def test_fetch_recent_activities(client: GarminClient) -> None:
     out = client.fetch_recent_activities(days=7, limit=5)
     assert len(out["activities"]) == 1
     assert out["activities"][0]["type"] == "running"
+
+
+def test_fetch_training_partial_when_one_call_fails(client: GarminClient) -> None:
+    class PartialFake(FakeGarmin):
+        def get_training_status(self, cdate: str) -> dict[str, Any]:
+            raise RuntimeError("upstream")
+
+    client._api_factory = lambda e, p: PartialFake(e, p)
+    client.invalidate_session()
+    out = client.fetch_training_readiness_and_status("2026-01-10")
+    assert out["training_readiness_score"] == 72
 
 
 def test_all_fetch_functions(client: GarminClient) -> None:
