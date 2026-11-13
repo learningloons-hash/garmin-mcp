@@ -1,0 +1,312 @@
+# garmin-mcp — Technical Specification
+
+## Goal
+
+Build a small, personal, **read-only** MCP (Model Context Protocol) server in Python that exposes Mark Lee’s own Garmin Connect data to his AI assistant (Grok Bot). Transport is **remote Streamable HTTP** (official MCP Python SDK / FastMCP). The server runs as a single always-on service on **Railway**.
+
+Data access uses the open-source [`garminconnect`](https://github.com/cyberjunky/python-garminconnect) library (PyPI: `garminconnect`), which calls Garmin’s **unofficial** HTTP APIs.
+
+## Non-goals
+
+- **No write or modify operations** on Garmin (no uploading activities, changing settings, sending messages, etc.).
+- **No multi-user** support; one Garmin account, one API key holder.
+- **No public or unauthenticated access** to health data; bearer token required on MCP traffic (except `/health`).
+- **No** syncing to a database, analytics warehouse, or third-party fitness apps (this milestone and product scope).
+- **No** billing, subscriptions, or paid third-party services inside the repo.
+
+## Architecture
+
+```text
+┌─────────────┐     HTTPS + Bearer (MCP_API_KEY)     ┌──────────────────┐
+│  Grok Bot   │ ───────────────────────────────────► │  garmin-mcp      │
+│  (client)   │         MCP Streamable HTTP          │  (FastMCP)       │
+└─────────────┘                                      └────────┬─────────┘
+                                                                │
+                                                    garminconnect + garth
+                                                                │
+                                                                ▼
+                                                    ┌──────────────────┐
+                                                    │ Garmin Connect   │
+                                                    │ (unofficial API) │
+                                                    └──────────────────┘
+```
+
+Layers (by milestone):
+
+| Layer | Responsibility |
+|-------|----------------|
+| **MCP** (M3) | Tool definitions, input validation, compact JSON outputs, auth middleware, `/health`. |
+| **Garmin client** (M2) | Login, token persistence/refresh, typed fetch helpers, error mapping. |
+| **Deploy** (M4) | Docker/Nixpacks, `PORT`, volume for tokens, runbook, smoke tests. |
+| **Hook-up** (M5) | Mark configures custom connector in his bot. |
+
+## Environment variables (names only)
+
+| Name | Purpose |
+|------|---------|
+| `GARMIN_EMAIL` | Garmin Connect account email (M2 login). |
+| `GARMIN_PASSWORD` | Garmin Connect password (M2 login; prefer token-only runtime after MFA bootstrap). |
+| `GARMINTOKENS` | Filesystem path for persisted **garth** OAuth token store (e.g. Railway volume mount). |
+| `MCP_API_KEY` | Shared secret; clients must send `Authorization: Bearer <MCP_API_KEY>`. |
+| `PORT` | HTTP listen port (Railway sets this). |
+
+Optional future vars (not required until implemented): log level, request timeouts, rate-limit knobs.
+
+## Security model
+
+1. **MCP surface**: Every MCP request (except `/health`) requires a valid bearer token equal to `MCP_API_KEY`; otherwise **401** with no data leakage.
+2. **Secrets**: Live only in environment or Railway secrets/volume; never in git, tests, or logs.
+3. **Tokens**: OAuth artifacts stored under `GARMINTOKENS`; directory ignored by git; treat volume backups as sensitive as passwords.
+4. **Network**: HTTPS only in production; single-tenant; no OAuth for MCP clients (static API key is sufficient for personal use).
+5. **Read-only**: Tool layer must not call Garmin endpoints that mutate user data (library calls audited in M2/M3).
+
+## Risks (Garmin unofficial API)
+
+- Endpoints and response shapes can **change without notice**; the server may break until `garminconnect` or this repo is updated.
+- Use may **conflict with Garmin’s Terms of Service**; this is a personal, single-user integration with no Garmin partnership.
+- **Rate limiting** or account lockouts are possible if traffic is abusive; keep request volume modest.
+- **MFA/2FA**: Initial login may require a one-time human bootstrap (documented CLI in M2); runtime should reuse stored tokens.
+
+## MCP tools (read-only, proposed)
+
+All tools return **compact JSON** with explicit **units**. Errors are structured (see Error handling).
+
+### `get_recent_activities`
+
+**Input**
+
+```json
+{ "days": 7, "limit": 20 }
+```
+
+- `days` (int, 1–90, default 7): lookback window.
+- `limit` (int, 1–50, default 20): max activities returned.
+
+**Output**
+
+```json
+{
+  "activities": [
+    {
+      "activity_id": 12345678901,
+      "name": "Morning Run",
+      "type": "running",
+      "start_time_local": "2026-11-12T07:15:00",
+      "duration_sec": 2847,
+      "distance_m": 5120.5,
+      "avg_hr_bpm": 142,
+      "calories_kcal": 410
+    }
+  ]
+}
+```
+
+### `get_activity_detail`
+
+**Input**
+
+```json
+{ "activity_id": 12345678901 }
+```
+
+**Output** (subset; full detail trimmed for token size in implementation)
+
+```json
+{
+  "activity_id": 12345678901,
+  "name": "Morning Run",
+  "type": "running",
+  "start_time_local": "2026-11-12T07:15:00",
+  "duration_sec": 2847,
+  "distance_m": 5120.5,
+  "elevation_gain_m": 42,
+  "avg_hr_bpm": 142,
+  "max_hr_bpm": 168,
+  "calories_kcal": 410,
+  "avg_pace_sec_per_km": 333
+}
+```
+
+### `get_daily_summary`
+
+**Input**
+
+```json
+{ "date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "date": "2026-11-12",
+  "steps": 10432,
+  "calories_kcal": 2180,
+  "resting_hr_bpm": 54
+}
+```
+
+### `get_sleep`
+
+**Input**
+
+```json
+{ "date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "date": "2026-11-12",
+  "sleep_start_local": "2026-11-11T22:48:00",
+  "sleep_end_local": "2026-11-12T06:12:00",
+  "duration_asleep_sec": 25200,
+  "deep_sleep_sec": 5400,
+  "light_sleep_sec": 12600,
+  "rem_sleep_sec": 5100,
+  "awake_sec": 1200,
+  "sleep_score": 78
+}
+```
+
+### `get_hrv`
+
+**Input**
+
+```json
+{ "date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "date": "2026-11-12",
+  "overnight_hrv_ms": 52,
+  "status": "balanced"
+}
+```
+
+(`status` values depend on Garmin payload; map to stable enums where possible.)
+
+### `get_body_battery_and_stress`
+
+**Input**
+
+```json
+{ "date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "date": "2026-11-12",
+  "body_battery_high": 92,
+  "body_battery_low": 18,
+  "avg_stress_level": 28,
+  "rest_stress_minutes": 180
+}
+```
+
+### `get_training_readiness_and_status`
+
+**Input**
+
+```json
+{ "date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "date": "2026-11-12",
+  "training_readiness_score": 75,
+  "training_status": "productive",
+  "vo2_max": 48.2,
+  "acute_load": 320,
+  "chronic_load": 295
+}
+```
+
+Field availability varies by device/account; missing fields are omitted or `null` with a note in tool description.
+
+### `get_body_composition`
+
+**Input**
+
+```json
+{ "start_date": "2026-10-01", "end_date": "2026-11-12" }
+```
+
+**Output**
+
+```json
+{
+  "entries": [
+    {
+      "date": "2026-11-10",
+      "weight_kg": 72.4,
+      "bmi": 22.1,
+      "body_fat_percent": 18.5
+    }
+  ]
+}
+```
+
+### `GET /health`
+
+No auth. Returns service liveness only, e.g. `{"status": "ok"}` — **no Garmin data**.
+
+## Error handling
+
+Errors returned to the MCP client should be **clear and actionable** (no stack traces in production responses).
+
+| Condition | Client-facing behavior |
+|-----------|-------------------------|
+| Missing/invalid `MCP_API_KEY` | HTTP 401, message: unauthorized. |
+| Garmin session missing/expired | Tool error: re-run MFA bootstrap or check `GARMINTOKENS`. |
+| Garmin auth failure (bad password) | Tool error: check credentials (deploy-time only). |
+| Rate limit / HTTP 429 | Tool error: retry later; optional backoff in client. |
+| Endpoint/parse failure (API drift) | Tool error: upstream schema change; log details server-side. |
+| Invalid tool input | Validation error with field hints. |
+
+## Milestones and acceptance criteria
+
+### M1 — Spec, agent rules, skeleton (this repo baseline)
+
+- `SPEC.md`, `AGENTS.md`, `pyproject.toml`, package layout, trivial tests, CI (ruff + pytest).
+- **Acceptance**: `ruff check` and `pytest` pass; no Garmin network calls; no secrets in tree.
+
+### M2 — Garmin client module
+
+- Env-based login; garth token dir at `GARMINTOKENS`; refresh; documented one-time MFA CLI bootstrap.
+- Typed fetch functions backing each planned tool; unit tests with mocks/recordings (no real credentials).
+- **Acceptance**: tests pass offline; README section for bootstrap; no MCP server yet.
+
+### M3 — MCP server layer
+
+- FastMCP + streamable HTTP; 6–8 read-only tools as above; bearer auth; `/health`.
+- **Acceptance**: local integration tests with mocked Garmin client; no write tools.
+
+### M4 — Railway deploy
+
+- Dockerfile or Nixpacks; `PORT`; `RUNBOOK.md` for Mark (service, secrets, volume, MFA).
+- Acceptance smoke test: `/health` + one authenticated tool call.
+- **Acceptance**: Mark can deploy without agent merging to `main`.
+
+### M5 — Hook-up
+
+- Mark adds connector URL + key to Grok Bot; manual end-to-end validation.
+- **Acceptance**: Mark confirms at least one tool returns live data in chat.
+
+## Open decisions (for Mark)
+
+Recorded here as the spec evolves:
+
+- Exact **MCP SDK** pin and streamable HTTP mount path (finalize in M3 against SDK docs).
+- Whether runtime login uses **password only at bootstrap** vs. retained env password (prefer bootstrap-only).
+- **Volume path** default on Railway for `GARMINTOKENS`.
+- How aggressively to **trim** activity detail payloads for LLM context limits.

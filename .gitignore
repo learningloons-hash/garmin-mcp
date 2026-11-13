@@ -1,0 +1,35 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Garmin OAuth / garth token stores
+tokens/
+.garth/
+garth/
+*.token
+oauth*.json
+*_tokens.json
+**/GARMINTOKENS/**
+
+# Local IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
