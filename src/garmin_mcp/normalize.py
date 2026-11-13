@@ -44,14 +44,15 @@ def _timestamp_to_iso(value: Any) -> str | None:
     return None
 
 
-def _is_calendar_midnight_placeholder(value: str, calendar_date: str | None) -> bool:
-    if not calendar_date:
-        return value.endswith("T00:00:00") and len(value) <= 19
-    return value in {calendar_date, f"{calendar_date}T00:00:00", f"{calendar_date}T00:00:00.0"}
+def _is_date_only_timestamp(value: str, calendar_date: str | None) -> bool:
+    """Date-only placeholders (no time); not local ISO timestamps at midnight."""
+    if calendar_date and value == calendar_date:
+        return True
+    return len(value) == 10 and value[4] == "-" and value[7] == "-"
 
 
 def _sleep_timestamp_local(dto: Mapping[str, Any], *, start: bool) -> str | None:
-    """Prefer millisecond epoch fields; reject calendar-date midnight string placeholders."""
+    """Prefer millisecond local epochs; reject date-only strings when GMT ms is available."""
     calendar_date = dto.get("calendarDate")
     local_key = "sleepStartTimestampLocal" if start else "sleepEndTimestampLocal"
     gmt_key = "sleepStartTimestampGMT" if start else "sleepEndTimestampGMT"
@@ -59,17 +60,32 @@ def _sleep_timestamp_local(dto: Mapping[str, Any], *, start: bool) -> str | None
     local_val = dto.get(local_key)
     if isinstance(local_val, int | float):
         return _timestamp_to_iso(local_val)
-    if isinstance(local_val, str) and not _is_calendar_midnight_placeholder(
-        local_val, calendar_date
-    ):
-        return local_val
+    if isinstance(local_val, str):
+        if not _is_date_only_timestamp(local_val, calendar_date):
+            return local_val
 
     gmt_val = dto.get(gmt_key)
     if isinstance(gmt_val, int | float):
         return _timestamp_to_iso(gmt_val)
+    return None
 
-    if isinstance(local_val, str):
-        return _timestamp_to_iso(local_val)
+
+def _hrv_summary_fields(raw: Mapping[str, Any]) -> dict[str, Any]:
+    summary = raw.get("hrvSummary")
+    if isinstance(summary, dict):
+        return summary
+    return {}
+
+
+def _vo2_from_sport_sections(row: Mapping[str, Any]) -> float | int | None:
+    for sport_key in ("generic", "cycling"):
+        section = row.get(sport_key) or {}
+        if isinstance(section, dict):
+            val = section.get("vo2MaxValue")
+            if val is None:
+                val = section.get("vo2MaxPreciseValue")
+            if val is not None:
+                return val
     return None
 
 
@@ -139,15 +155,24 @@ def _training_device_snapshot(training_status: dict[str, Any]) -> dict[str, Any]
 def _vo2_max_from_training_status(training_status: dict[str, Any]) -> float | int | None:
     vo2_root = training_status.get("mostRecentVO2Max") or {}
     if isinstance(vo2_root, dict):
-        for sport_key in ("generic", "cycling"):
-            section = vo2_root.get(sport_key) or {}
-            if isinstance(section, dict):
-                val = section.get("vo2MaxValue")
-                if val is None:
-                    val = section.get("vo2MaxPreciseValue")
-                if val is not None:
-                    return val
+        vo2 = _vo2_from_sport_sections(vo2_root)
+        if vo2 is not None:
+            return vo2
     return training_status.get("vo2Max") or training_status.get("vo2MaxValue")
+
+
+def _vo2_max_from_max_metrics(max_metrics: Any) -> float | int | None:
+    if max_metrics is None:
+        return None
+    if isinstance(max_metrics, list):
+        row = max_metrics[0] if max_metrics else None
+    elif isinstance(max_metrics, dict):
+        row = max_metrics
+    else:
+        return None
+    if not isinstance(row, dict):
+        return None
+    return _vo2_from_sport_sections(row)
 
 
 def _acute_chronic_load(
@@ -235,9 +260,9 @@ def normalize_sleep(cdate: str, raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_hrv(cdate: str, raw: dict[str, Any] | None) -> dict[str, Any]:
-    if not raw:
+    if raw is None or not isinstance(raw, dict):
         return {"date": cdate, "overnight_hrv_ms": None, "status": None}
-    summary = raw.get("hrvSummary") or raw
+    summary = _hrv_summary_fields(raw)
     return {
         "date": cdate,
         "overnight_hrv_ms": summary.get("lastNightAvg"),
@@ -289,6 +314,7 @@ def normalize_training(
     readiness: dict[str, Any] | list[dict[str, Any]] | None,
     daily_status: dict[str, Any] | list[dict[str, Any]] | None,
     training_status: dict[str, Any] | None,
+    max_metrics: Any | None = None,
 ) -> dict[str, Any]:
     readiness_row = _coerce_readiness_snapshot(readiness)
     daily_row = _coerce_daily_training_status(daily_status)
@@ -305,6 +331,8 @@ def normalize_training(
         or readiness_row.get("level")
     )
     vo2 = _vo2_max_from_training_status(training_status)
+    if vo2 is None:
+        vo2 = _vo2_max_from_max_metrics(max_metrics)
     acute, chronic = _acute_chronic_load(daily_row, device_row)
 
     return {

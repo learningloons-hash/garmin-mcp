@@ -255,12 +255,34 @@ class GarminClient:
 
     def fetch_training_readiness_and_status(self, cdate: str) -> dict[str, Any]:
         def work(api: Garmin) -> dict[str, Any]:
-            readiness = api.get_morning_training_readiness(cdate)
-            if not readiness:
-                readiness = api.get_training_readiness(cdate)
-            daily_status = api.get_daily_training_status(cdate)
-            training_status = api.get_training_status(cdate)
-            return normalize_training(cdate, readiness, daily_status, training_status)
+            readiness: Any = None
+            daily_status: Any = None
+            training_status: dict[str, Any] | None = None
+            max_metrics: Any = None
+
+            for label, fetch in (
+                ("get_training_readiness", lambda: api.get_training_readiness(cdate)),
+                ("get_daily_training_status", lambda: api.get_daily_training_status(cdate)),
+                ("get_training_status", lambda: api.get_training_status(cdate)),
+                ("get_max_metrics", lambda: api.get_max_metrics(cdate)),
+            ):
+                try:
+                    result = fetch()
+                except Exception as exc:
+                    logger.warning("Garmin %s failed: %s", label, type(exc).__name__)
+                    continue
+                if label == "get_training_readiness":
+                    readiness = result
+                elif label == "get_daily_training_status":
+                    daily_status = result
+                elif label == "get_training_status":
+                    training_status = result
+                else:
+                    max_metrics = result
+
+            return normalize_training(
+                cdate, readiness, daily_status, training_status, max_metrics
+            )
 
         return self._retry_after_reauth(work)
 

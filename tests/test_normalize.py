@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from garmin_mcp.normalize import (
     _timestamp_to_iso,
     normalize_activity_detail,
@@ -11,7 +13,9 @@ from garmin_mcp.normalize import (
 )
 from tests.fixtures.realistic_garmin import (
     REAL_DAILY_TRAINING_STATUS_LIST,
-    REAL_SLEEP_MIDNIGHT_STRING_START,
+    REAL_HRV_NIGHT,
+    REAL_MAX_METRICS_LIST,
+    REAL_SLEEP_DATE_ONLY_START,
     REAL_TRAINING_READINESS_LIST,
     REAL_TRAINING_STATUS_AGGREGATED,
 )
@@ -54,17 +58,44 @@ def test_normalize_sleep() -> None:
     assert out["duration_asleep_sec"] == 25200
 
 
-def test_normalize_sleep_uses_ms_not_calendar_midnight_start() -> None:
-    out = normalize_sleep("2026-11-13", REAL_SLEEP_MIDNIGHT_STRING_START)
-    assert out["sleep_start_local"] != "2026-11-13T00:00:00"
+def test_normalize_sleep_date_only_start_uses_gmt_ms() -> None:
+    out = normalize_sleep("2026-11-13", REAL_SLEEP_DATE_ONLY_START)
     assert out["sleep_start_local"] == _timestamp_to_iso(1762991580000)
     assert out["sleep_end_local"] == _timestamp_to_iso(1763018760000)
+
+
+def test_normalize_sleep_preserves_midnight_ms_and_iso() -> None:
+    midnight = datetime(2026, 11, 13, 0, 0, 0)
+    ms = int(midnight.timestamp() * 1000)
+    payload = {
+        "dailySleepDTO": {
+            "calendarDate": "2026-11-13",
+            "sleepStartTimestampLocal": ms,
+            "sleepEndTimestampLocal": "2026-11-13T08:06:00",
+        }
+    }
+    out = normalize_sleep("2026-11-13", payload)
+    assert out["sleep_start_local"] == _timestamp_to_iso(ms)
+    assert out["sleep_start_local"].endswith("T00:00:00")
+    assert out["sleep_end_local"] == "2026-11-13T08:06:00"
 
 
 def test_normalize_hrv() -> None:
     out = normalize_hrv("2026-01-10", SYNTH_HRV)
     assert out["overnight_hrv_ms"] == 48.5
     assert out["status"] == "balanced"
+
+
+def test_normalize_hrv_reads_hrv_summary() -> None:
+    out = normalize_hrv("2026-11-13", REAL_HRV_NIGHT)
+    assert out["overnight_hrv_ms"] == 51.2
+    assert out["status"] == "balanced"
+
+
+def test_normalize_hrv_null_payload() -> None:
+    out = normalize_hrv("2026-11-13", None)
+    assert out["overnight_hrv_ms"] is None
+    assert out["status"] is None
 
 
 def test_normalize_body_battery_stress() -> None:
@@ -120,6 +151,18 @@ def test_normalize_training_aggregated_load_fallback() -> None:
     )
     assert out["acute_load"] == 715
     assert out["chronic_load"] == 701
+
+
+def test_normalize_training_vo2_from_max_metrics_fallback() -> None:
+    training_status = {"mostRecentVO2Max": None, "mostRecentTrainingStatus": None}
+    out = normalize_training(
+        "2026-11-13",
+        REAL_TRAINING_READINESS_LIST[1],
+        {},
+        training_status,
+        REAL_MAX_METRICS_LIST,
+    )
+    assert out["vo2_max"] == 47.0
 
 
 def test_normalize_body_composition_grams() -> None:
