@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -34,13 +35,140 @@ def _pace_sec_per_km(duration_sec: float | None, distance_m: float | None) -> in
 def _timestamp_to_iso(value: Any) -> str | None:
     if value is None:
         return None
-    if isinstance(value, str):
-        return value
     if isinstance(value, int | float):
         # Garmin often uses millisecond epochs for local sleep timestamps.
         seconds = value / 1000.0 if value > 1_000_000_000_000 else value
         return datetime.fromtimestamp(seconds).isoformat(sep="T", timespec="seconds")
+    if isinstance(value, str):
+        return value
     return None
+
+
+def _is_calendar_midnight_placeholder(value: str, calendar_date: str | None) -> bool:
+    if not calendar_date:
+        return value.endswith("T00:00:00") and len(value) <= 19
+    return value in {calendar_date, f"{calendar_date}T00:00:00", f"{calendar_date}T00:00:00.0"}
+
+
+def _sleep_timestamp_local(dto: Mapping[str, Any], *, start: bool) -> str | None:
+    """Prefer millisecond epoch fields; reject calendar-date midnight string placeholders."""
+    calendar_date = dto.get("calendarDate")
+    local_key = "sleepStartTimestampLocal" if start else "sleepEndTimestampLocal"
+    gmt_key = "sleepStartTimestampGMT" if start else "sleepEndTimestampGMT"
+
+    local_val = dto.get(local_key)
+    if isinstance(local_val, int | float):
+        return _timestamp_to_iso(local_val)
+    if isinstance(local_val, str) and not _is_calendar_midnight_placeholder(
+        local_val, calendar_date
+    ):
+        return local_val
+
+    gmt_val = dto.get(gmt_key)
+    if isinstance(gmt_val, int | float):
+        return _timestamp_to_iso(gmt_val)
+
+    if isinstance(local_val, str):
+        return _timestamp_to_iso(local_val)
+    return None
+
+
+def _pick_primary_training_device(device_map: dict[str, Any]) -> dict[str, Any]:
+    if not device_map:
+        return {}
+    for device in device_map.values():
+        if isinstance(device, dict) and device.get("primaryTrainingDevice"):
+            return device
+    first = next(iter(device_map.values()), None)
+    return first if isinstance(first, dict) else {}
+
+
+def _coerce_readiness_snapshot(readiness: Any) -> dict[str, Any]:
+    if readiness is None:
+        return {}
+    if isinstance(readiness, list):
+        morning = next(
+            (
+                entry
+                for entry in readiness
+                if isinstance(entry, dict)
+                and entry.get("inputContext") == "AFTER_WAKEUP_RESET"
+            ),
+            None,
+        )
+        if morning is not None:
+            return morning
+        first = readiness[0] if readiness else None
+        return first if isinstance(first, dict) else {}
+    if isinstance(readiness, dict):
+        return readiness
+    return {}
+
+
+def _coerce_daily_training_status(daily_status: Any) -> dict[str, Any]:
+    if daily_status is None:
+        return {}
+    if isinstance(daily_status, list):
+        primary = next(
+            (
+                entry
+                for entry in daily_status
+                if isinstance(entry, dict) and entry.get("primaryTrainingDevice")
+            ),
+            None,
+        )
+        if primary is not None:
+            return primary
+        first = daily_status[0] if daily_status else None
+        return first if isinstance(first, dict) else {}
+    if isinstance(daily_status, dict):
+        return daily_status
+    return {}
+
+
+def _training_device_snapshot(training_status: dict[str, Any]) -> dict[str, Any]:
+    recent = training_status.get("mostRecentTrainingStatus") or {}
+    if not isinstance(recent, dict):
+        return {}
+    device_map = recent.get("latestTrainingStatusData") or {}
+    if not isinstance(device_map, dict):
+        return {}
+    return _pick_primary_training_device(device_map)
+
+
+def _vo2_max_from_training_status(training_status: dict[str, Any]) -> float | int | None:
+    vo2_root = training_status.get("mostRecentVO2Max") or {}
+    if isinstance(vo2_root, dict):
+        for sport_key in ("generic", "cycling"):
+            section = vo2_root.get(sport_key) or {}
+            if isinstance(section, dict):
+                val = section.get("vo2MaxValue")
+                if val is None:
+                    val = section.get("vo2MaxPreciseValue")
+                if val is not None:
+                    return val
+    return training_status.get("vo2Max") or training_status.get("vo2MaxValue")
+
+
+def _acute_chronic_load(
+    daily_row: dict[str, Any], device_row: dict[str, Any]
+) -> tuple[Any, Any]:
+    acute_block = device_row.get("acuteTrainingLoadDTO") or {}
+    if not isinstance(acute_block, dict):
+        acute_block = {}
+    acute = (
+        daily_row.get("dailyTrainingLoadAcute")
+        or acute_block.get("dailyTrainingLoadAcute")
+        or daily_row.get("acuteTrainingLoad")
+        or daily_row.get("dailyAcuteLoad")
+    )
+    chronic = (
+        daily_row.get("dailyTrainingLoadChronic")
+        or acute_block.get("dailyTrainingLoadChronic")
+        or daily_row.get("chronicTrainingLoad")
+        or daily_row.get("dailyChronicLoad")
+    )
+    return acute, chronic
 
 
 def normalize_recent_activity(raw: dict[str, Any]) -> dict[str, Any]:
@@ -95,8 +223,8 @@ def normalize_sleep(cdate: str, raw: dict[str, Any]) -> dict[str, Any]:
     overall = _nested(scores, "overall", "value")
     return {
         "date": cdate,
-        "sleep_start_local": _timestamp_to_iso(dto.get("sleepStartTimestampLocal")),
-        "sleep_end_local": _timestamp_to_iso(dto.get("sleepEndTimestampLocal")),
+        "sleep_start_local": _sleep_timestamp_local(dto, start=True),
+        "sleep_end_local": _sleep_timestamp_local(dto, start=False),
         "duration_asleep_sec": dto.get("sleepTimeSeconds"),
         "deep_sleep_sec": dto.get("deepSleepSeconds"),
         "light_sleep_sec": dto.get("lightSleepSeconds"),
@@ -158,32 +286,34 @@ def normalize_body_battery_stress(
 
 def normalize_training(
     cdate: str,
-    readiness: dict[str, Any] | None,
-    daily_status: dict[str, Any] | None,
+    readiness: dict[str, Any] | list[dict[str, Any]] | None,
+    daily_status: dict[str, Any] | list[dict[str, Any]] | None,
     training_status: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    readiness = readiness or {}
-    daily_status = daily_status or {}
+    readiness_row = _coerce_readiness_snapshot(readiness)
+    daily_row = _coerce_daily_training_status(daily_status)
     training_status = training_status or {}
+    device_row = _training_device_snapshot(training_status)
 
-    score = readiness.get("score")
+    score = readiness_row.get("score")
     status = (
-        daily_status.get("trainingStatus")
+        daily_row.get("trainingStatusFeedbackPhrase")
+        or device_row.get("trainingStatusFeedbackPhrase")
+        or daily_row.get("trainingStatus")
+        or device_row.get("trainingStatus")
         or training_status.get("trainingStatus")
-        or readiness.get("level")
+        or readiness_row.get("level")
     )
-    vo2 = training_status.get("vo2Max") or training_status.get("vo2MaxValue")
-    if vo2 is None:
-        vo2 = _nested(training_status, "mostRecentVO2Max", "vo2MaxValue")
+    vo2 = _vo2_max_from_training_status(training_status)
+    acute, chronic = _acute_chronic_load(daily_row, device_row)
 
     return {
         "date": cdate,
         "training_readiness_score": score,
         "training_status": status,
         "vo2_max": vo2,
-        "acute_load": daily_status.get("acuteTrainingLoad") or daily_status.get("dailyAcuteLoad"),
-        "chronic_load": daily_status.get("chronicTrainingLoad")
-        or daily_status.get("dailyChronicLoad"),
+        "acute_load": acute,
+        "chronic_load": chronic,
     }
 
 

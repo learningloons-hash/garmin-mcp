@@ -256,6 +256,8 @@ class GarminClient:
     def fetch_training_readiness_and_status(self, cdate: str) -> dict[str, Any]:
         def work(api: Garmin) -> dict[str, Any]:
             readiness = api.get_morning_training_readiness(cdate)
+            if not readiness:
+                readiness = api.get_training_readiness(cdate)
             daily_status = api.get_daily_training_status(cdate)
             training_status = api.get_training_status(cdate)
             return normalize_training(cdate, readiness, daily_status, training_status)
