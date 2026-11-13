@@ -9,8 +9,9 @@ import sys
 from garminconnect import Garmin
 
 from garmin_mcp.config import GarminSettings
-from garmin_mcp.errors import map_library_exception
+from garmin_mcp.errors import map_library_exception, public_message
 from garmin_mcp.redact import redact_secrets
+from garmin_mcp.tokens_fs import ensure_token_dir
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,16 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    token_dir = settings.token_dir
-    token_dir.mkdir(parents=True, exist_ok=True)
+    token_dir = ensure_token_dir(settings.token_dir)
 
     password = settings.password or getpass.getpass("Garmin password: ")
 
-    api = Garmin(settings.email, password, return_on_mfa=True)
+    api = Garmin(settings.email, password, return_on_mfa=True, retry_attempts=0)
     try:
         status, client_state = api.login(tokenstore=str(token_dir))
     except Exception as exc:
         mapped = map_library_exception(exc)
-        print(redact_secrets(str(mapped)), file=sys.stderr)
+        print(public_message(mapped), file=sys.stderr)
         return 1
 
     if status == "needs_mfa":
@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             api.resume_login(client_state, code)
         except Exception as exc:
             mapped = map_library_exception(exc)
-            print(redact_secrets(str(mapped)), file=sys.stderr)
+            print(public_message(mapped), file=sys.stderr)
             return 1
 
     try:

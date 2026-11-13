@@ -291,7 +291,7 @@ Errors returned to the MCP client should be **clear and actionable** (no stack t
 - `SPEC.md`, `AGENTS.md`, `pyproject.toml`, package layout, trivial tests, CI (ruff + pytest).
 - **Acceptance**: `ruff check` and `pytest` pass; no Garmin network calls; no secrets in tree.
 
-### M2 — Garmin client module ✅ (implemented)
+### M2 — Garmin client module (in review — PR #1)
 
 - Env-based login with retained `GARMIN_EMAIL` / `GARMIN_PASSWORD`; token dir `GARMINTOKENS` (default `/data/garth`); re-login on failure; MFA bootstrap CLI.
 - Typed fetch functions backing each planned tool; unit tests with mocks (no real credentials).

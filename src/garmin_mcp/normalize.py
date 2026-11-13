@@ -134,12 +134,15 @@ def normalize_body_battery_stress(
             high = row.get("bodyBatteryHighestValue") or row.get("charged")
             low = row.get("bodyBatteryLowestValue") or row.get("drained")
 
-    if summary:
-        high = high if high is not None else summary.get("bodyBatteryHighestValue")
-        low = low if low is not None else summary.get("bodyBatteryLowestValue")
+    summary_fields = summary or {}
+    if summary_fields:
+        high = high if high is not None else summary_fields.get("bodyBatteryHighestValue")
+        low = low if low is not None else summary_fields.get("bodyBatteryLowestValue")
 
-    stress = stress or {}
-    rest_stress = stress.get("restStressDuration") or summary.get("restStressDuration")
+    stress_fields = stress or {}
+    rest_stress = stress_fields.get("restStressDuration") or summary_fields.get(
+        "restStressDuration"
+    )
     if rest_stress is not None:
         rest_stress = int(rest_stress) // 60
 
@@ -147,8 +150,8 @@ def normalize_body_battery_stress(
         "date": cdate,
         "body_battery_high": high,
         "body_battery_low": low,
-        "avg_stress_level": stress.get("averageStressLevel")
-        or summary.get("averageStressLevel"),
+        "avg_stress_level": stress_fields.get("averageStressLevel")
+        or summary_fields.get("averageStressLevel"),
         "rest_stress_minutes": rest_stress,
     }
 

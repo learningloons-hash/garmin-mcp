@@ -1,5 +1,6 @@
 from garminconnect import (
     GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
     GarminConnectNotFoundError,
     GarminConnectTooManyRequestsError,
 )
@@ -32,3 +33,13 @@ def test_map_not_found() -> None:
 def test_map_auth_failure() -> None:
     mapped = map_library_exception(GarminConnectAuthenticationError("401 Unauthorized"))
     assert isinstance(mapped, AuthFailureError)
+
+
+def test_connection_error_hides_upstream_detail() -> None:
+    mapped = map_library_exception(
+        GarminConnectConnectionError("super-secret-upstream-token-value leaked")
+    )
+    text = str(mapped)
+    assert "super-secret-upstream-token-value" not in text
+    assert "leaked" not in text
+    assert "server logs" in text

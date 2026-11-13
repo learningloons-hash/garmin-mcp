@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+from garmin_mcp.redact import redact_secrets
+
+logger = logging.getLogger(__name__)
+
 
 class GarminMcpError(Exception):
     """Base error for garmin-mcp client operations."""
@@ -11,6 +17,9 @@ class GarminMcpError(Exception):
     def __init__(self, message: str, *, cause: BaseException | None = None) -> None:
         super().__init__(message)
         self.cause = cause
+
+    def __str__(self) -> str:
+        return public_message(self)
 
 
 class AuthFailureError(GarminMcpError):
@@ -49,8 +58,14 @@ def map_library_exception(exc: BaseException) -> GarminMcpError:
         GarminConnectTooManyRequestsError,
     )
 
-    message = str(exc)
-    lowered = message.lower()
+    raw = str(exc)
+    logger.debug(
+        "Garmin upstream error (%s): %s",
+        type(exc).__name__,
+        redact_secrets(raw),
+        exc_info=exc,
+    )
+    lowered = raw.lower()
 
     if isinstance(exc, GarminConnectTooManyRequestsError):
         return RateLimitedError("Garmin rate limit exceeded; retry later.", cause=exc)
@@ -82,7 +97,10 @@ def map_library_exception(exc: BaseException) -> GarminMcpError:
                 "Unexpected Garmin response shape; upstream API may have changed.",
                 cause=exc,
             )
-        return GarminMcpError(f"Garmin connection error: {message}", cause=exc)
+        return GarminMcpError(
+            "Garmin connection error; see server logs for details.",
+            cause=exc,
+        )
 
     if isinstance(exc, KeyError | TypeError | ValueError):
         return UpstreamChangedError(
@@ -90,11 +108,14 @@ def map_library_exception(exc: BaseException) -> GarminMcpError:
             cause=exc,
         )
 
-    return GarminMcpError(f"Unexpected Garmin client error: {type(exc).__name__}", cause=exc)
+    return GarminMcpError(
+        f"Unexpected Garmin client error ({type(exc).__name__}).",
+        cause=exc,
+    )
 
 
-def public_message(exc: GarminMcpError) -> str:
-    """User-safe message (never includes secrets)."""
-    from garmin_mcp.redact import redact_secrets
-
+def public_message(exc: GarminMcpError | BaseException) -> str:
+    """User-safe message (never includes upstream or secret text)."""
+    if isinstance(exc, GarminMcpError):
+        return redact_secrets(exc.args[0] if exc.args else type(exc).__name__)
     return redact_secrets(str(exc))

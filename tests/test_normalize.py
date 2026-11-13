@@ -62,6 +62,19 @@ def test_normalize_body_battery_stress() -> None:
     assert out["rest_stress_minutes"] == 180
 
 
+def test_normalize_body_battery_stress_summary_none() -> None:
+    out = normalize_body_battery_stress("2026-01-10", SYNTH_BATTERY, SYNTH_STRESS, None)
+    assert out["body_battery_high"] == 88
+    assert out["avg_stress_level"] == 28
+
+
+def test_normalize_body_battery_stress_partial_stress() -> None:
+    out = normalize_body_battery_stress("2026-01-10", None, {}, None)
+    assert out["date"] == "2026-01-10"
+    assert out["body_battery_high"] is None
+    assert out["avg_stress_level"] is None
+
+
 def test_normalize_training() -> None:
     out = normalize_training(
         "2026-01-10", SYNTH_READINESS, SYNTH_DAILY_STATUS, SYNTH_TRAINING_STATUS

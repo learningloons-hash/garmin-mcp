@@ -5,10 +5,13 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from garminconnect import GarminConnectAuthenticationError
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectTooManyRequestsError,
+)
 
 from garmin_mcp.config import GarminSettings
-from garmin_mcp.errors import AuthFailureError, MfaRequiredError
+from garmin_mcp.errors import AuthFailureError, MfaRequiredError, RateLimitedError
 from garmin_mcp.garmin_client import GarminClient, get_garmin_client, reset_garmin_client
 from tests.fixtures.synthetic_garmin import (
     SYNTH_ACTIVITY,
@@ -129,6 +132,52 @@ def test_all_fetch_functions(client: GarminClient) -> None:
     client.fetch_body_battery_and_stress("2026-01-10")
     client.fetch_training_readiness_and_status("2026-01-10")
     client.fetch_body_composition("2026-01-09", "2026-01-10")
+
+
+def test_login_with_backoff_recovers_poisoned_tokens(
+    client: GarminClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeGarmin(client._settings.email, client._settings.password)
+    fake.fail_first_login = True
+    client._api_factory = lambda _e, _p: fake
+    monkeypatch.setattr("garmin_mcp.garmin_client.time.sleep", lambda _s: None)
+    client.ensure_session()
+    assert fake._login_calls == 2
+
+
+def test_login_rate_limited_not_retried(
+    client: GarminClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RateLimitedGarmin(FakeGarmin):
+        def login(self, tokenstore: str | None = None) -> tuple[str | None, Any]:
+            raise GarminConnectTooManyRequestsError("429 too many")
+
+    client._api_factory = lambda _e, _p: RateLimitedGarmin(_e, _p)
+    monkeypatch.setattr("garmin_mcp.garmin_client.time.sleep", lambda _s: None)
+    with pytest.raises(RateLimitedError):
+        client.ensure_session()
+
+
+def test_retry_after_reauth(client: GarminClient) -> None:
+    auth_state = {"failed_once": False}
+
+    class ReauthGarmin(FakeGarmin):
+        def get_activity(self, activity_id: str) -> dict[str, Any]:
+            if not auth_state["failed_once"]:
+                auth_state["failed_once"] = True
+                raise GarminConnectAuthenticationError("401 Unauthorized session expired")
+            return super().get_activity(activity_id)
+
+    client._api_factory = lambda e, p: ReauthGarmin(e, p)
+    client.invalidate_session()
+    out = client.fetch_activity_detail(990001)
+    assert out["activity_id"] == 990001
+
+
+def test_token_dir_permissions(client: GarminClient, token_dir: Path) -> None:
+    client.ensure_session()
+    mode = token_dir.stat().st_mode & 0o777
+    assert mode == 0o700
 
 
 def test_lazy_singleton_only_constructs_once(

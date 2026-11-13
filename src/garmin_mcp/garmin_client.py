@@ -19,8 +19,10 @@ from garmin_mcp.config import DEFAULT_TOKEN_DIR, GarminSettings
 from garmin_mcp.errors import (
     AuthFailureError,
     MfaRequiredError,
+    RateLimitedError,
     UpstreamChangedError,
     map_library_exception,
+    public_message,
 )
 from garmin_mcp.normalize import (
     normalize_activity_detail,
@@ -33,6 +35,7 @@ from garmin_mcp.normalize import (
     normalize_training,
 )
 from garmin_mcp.redact import redact_secrets
+from garmin_mcp.tokens_fs import ensure_token_dir
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,9 @@ class GarminClient:
         api_factory: Callable[[str, str], Garmin] | None = None,
     ) -> None:
         self._settings = settings
-        self._api_factory = api_factory or (lambda email, password: Garmin(email, password))
+        self._api_factory = api_factory or (
+            lambda email, password: Garmin(email, password, retry_attempts=0)
+        )
         self._api: Garmin | None = None
         self._session_lock = threading.Lock()
         self._logged_in = False
@@ -123,9 +128,13 @@ class GarminClient:
                     raise
             except MfaRequiredError:
                 raise
+            except RateLimitedError:
+                raise
             except Exception as exc:
                 last_exc = exc
                 mapped = map_library_exception(exc)
+                if isinstance(mapped, RateLimitedError):
+                    raise mapped from exc
                 if isinstance(mapped, AuthFailureError) and _is_permanent_auth_failure(mapped):
                     self._bad_credentials = True
                     raise mapped from exc
@@ -144,7 +153,7 @@ class GarminClient:
 
         try:
             tokenstore = self.token_dir
-            self._settings.token_dir.mkdir(parents=True, exist_ok=True)
+            ensure_token_dir(self._settings.token_dir)
             status, _state = self._api.login(tokenstore=tokenstore)
             if status == "needs_mfa":
                 raise MfaRequiredError(MfaRequiredError.BOOTSTRAP_HINT)
@@ -172,6 +181,11 @@ class GarminClient:
             raise
         except Exception as exc:
             mapped = map_library_exception(exc)
+            if mapped.cause:
+                logger.warning(
+                    "Garmin API call failed: %s",
+                    public_message(mapped),
+                )
             if isinstance(mapped, AuthFailureError):
                 self.invalidate_session()
             raise mapped from exc

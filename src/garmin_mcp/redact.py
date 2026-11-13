@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 from re import Pattern
 
-_SENSITIVE_ENV_NAMES = ("GARMIN_PASSWORD", "MCP_API_KEY")
+_SENSITIVE_ENV_NAMES = (
+    "GARMIN_EMAIL",
+    "GARMIN_PASSWORD",
+    "MCP_API_KEY",
+)
 
 # Bearer tokens, common OAuth-ish keys, and inline JSON token blobs.
 _PATTERNS: list[tuple[Pattern[str], str]] = [
@@ -15,6 +19,16 @@ _PATTERNS: list[tuple[Pattern[str], str]] = [
     (re.compile(r"(?i)(\"access_token\"\s*:\s*\")([^\"]+)(\")"), r'\1[REDACTED]\3'),
     (re.compile(r"(?i)(tokenstore\s*[=:]\s*)(\S+)"), r"\1[REDACTED]"),
     (re.compile(r"(?i)\b(mfa[-_ ]?code)\s*[=:]\s*(\S+)"), r"\1=[REDACTED]"),
+    (
+        re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9\-._~+/]+=*)\b"),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"\b([A-Za-z0-9\-_]{32,})(\.[A-Za-z0-9\-_]{16,})+\b"
+        ),
+        "[REDACTED]",
+    ),
 ]
 
 
@@ -33,7 +47,8 @@ def redact_secrets(text: str, extra_values: tuple[str, ...] = ()) -> str:
             candidates.append(val)
 
     for value in candidates:
-        if len(value) >= 4:
-            redacted = redacted.replace(value, "[REDACTED]")
+        if not value:
+            continue
+        redacted = redacted.replace(value, "[REDACTED]")
 
     return redacted
